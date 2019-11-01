@@ -1,0 +1,171 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    toc: true
+    theme: readable
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+> First the data is imported from a CSV file  
+
+```{r, warning = FALSE, message= FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+options(device = "quartz")
+
+codes <- read.csv(file="offense_codes.csv", header=TRUE, sep=",")
+crimes <- read.csv(file="crime.csv", header=TRUE, sep=",")
+```
+
+> Take a sneak peak at the data to understand the columns present in the csv  
+
+```{r}
+print(ncol(crimes))
+head(crimes,2)
+str(crimes)
+```
+
+> Do criminals take a break during December or does crime spike during holidays?   
+
+```{r}
+ggplot(crimes,aes(x=factor(MONTH),fill=factor(YEAR))) +
+  geom_bar(position=position_dodge(preserve='single',width=0.7),color='black',size=0.2,width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') + theme_light() + theme(aspect.ratio=0.5) + 
+  labs(x="Month of year",y="Number of crimes",fill="Year") +
+  scale_y_continuous(breaks=seq(0,10000,2000))
+```
+
+> The above plot does not show the actual picture because each year has different number of crimes so we need to scale it.  
+
+```{r}
+c1 <- crimes %>% group_by(YEAR,MONTH) %>% summarise(total = n()) %>% mutate(Percent = total/sum(total)*100)
+ggplot(c1,aes(x=factor(MONTH),y=Percent,fill=factor(YEAR))) + 
+  geom_bar(stat='identity',position=position_dodge(preserve='single',width=0.7),color='black',size=0.2,width=0.6) + 
+  scale_fill_brewer(palette = 'Pastel1') + theme_light() + theme(aspect.ratio=0.5) + 
+  labs(x="Month of year",y="Percent of crimes during the year",fill="Year")
+```
+
+> The above plto shows that the crimes happen all year round!
+
+> In the same vein, does crime mostly occurs on weekdays or on weekeknds?  
+
+```{r}
+crimes$DAY_OF_WEEK <- factor(crimes$DAY_OF_WEEK,levels=c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))
+ggplot(crimes,aes(x=factor(DAY_OF_WEEK,levels=c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")))) + 
+  geom_bar(position=position_dodge(preserve='single',width=0.7),color='black',size=0.2,width=0.6) +
+  scale_fill_brewer(palette='Pastel1') + theme_light() + theme(aspect.ratio=0.5) + 
+  labs(x="Day of week",y="Number of crimes")
+```
+
+> There does appear to be a dip in crime over the weekend. Lets try to understand what drives it. Is it due to the nature of crime, such as burgluries that dont happen on weekend? 
+
+```{r}
+c2 <- crimes %>% group_by(OFFENSE_CODE_GROUP,DAY_OF_WEEK) %>% summarise(total = n())
+ggplot(c2,aes(x=factor(OFFENSE_CODE_GROUP),y=total,color=factor(DAY_OF_WEEK))) + geom_point(size=1,shape=16) + 
+  scale_colour_manual(values=c("red","red","red","red","red","black","black")) + theme_light() + 
+  theme(aspect.ratio=0.8,axis.text.x=element_blank()) + 
+  labs(x="Type of offense",y="Number of crimes",color="Day")
+```
+
+> The above plot shows that some kind of crimes increase on weekend and some decrese. Lets try to visualize this better:
+
+```{r}
+c31 <- c2 %>% filter(DAY_OF_WEEK == "Monday" | DAY_OF_WEEK == "Tuesday" | DAY_OF_WEEK == "Wednesday" | DAY_OF_WEEK == "Thursday" | DAY_OF_WEEK == "Friday") %>% summarise(weekday_avg = mean(total))
+c32 <- c2 %>% filter(DAY_OF_WEEK == "Saturday" | DAY_OF_WEEK == "Sunday") %>% summarise(weekend_avg = mean(total))
+c3 <- full_join(c31,c32) 
+c3 <- c3 %>% mutate(weekend_avg = replace_na(weekend_avg,0))
+c3 <- c3 %>% mutate(weekday_avg = replace_na(weekday_avg,0))
+c3 <- c3 %>% mutate(WkD_WkE_diff = weekday_avg - weekend_avg) %>% arrange(desc(WkD_WkE_diff))
+c3$Pos = c3$WkD_WkE_diff >=0
+ggplot(c3,aes(x=reorder(factor(OFFENSE_CODE_GROUP),WkD_WkE_diff),y=WkD_WkE_diff,fill=Pos)) + geom_bar(stat='identity') + 
+  scale_fill_brewer(palette = "Pastel1", guide=FALSE) + theme_light() + theme(aspect.ratio=0.8,axis.text.x=element_blank()) + 
+  labs(x="Type of offense",y="Difference between average Weekday and Weekend crimes") + coord_cartesian(ylim=c(-1200,1200)) + 
+  scale_y_continuous(breaks=seq(-1200,1200,200)) + 
+  annotate("text",size=2,x=c(67-2.5,66-0.5,65-2.5,64-0.5,63-0.5),y=unlist(c3[1:5,4]+25),label=c(as.character((unlist(c3[1:5,1]))))) + 
+  annotate("text",size=2,x=c(3+4,2+2.5,1+1.5),y=unlist(c3[65:67,4]-25),label=c(as.character((unlist(c3[65:67,1]))))) + 
+  annotate("text",size=3,x=c(6,6),y=c(-1200,1200),label=c("Weekend crimes","Weekday crimes")) 
+```
+
+> This plot suggests that vandalism and assaults tend to happen more on weekends. The weekday higher crime number is driven by drug violations, arrest warrants, fraud etc. It makes me question if the crimes that are not considered "emergency" or necessary for maintaining peace and order get processed during weekdays when the police force is better staffed. But this is just a hypothesis and different data is needed to confirm or deny it. 
+
+> Do some kind of crimes like vandalism occur during a particular time of day. I wonder what insight we will get by looking at time of occurance of crime.  
+
+```{r}
+c4 <- crimes %>% group_by(OFFENSE_CODE_GROUP,HOUR,DAY_OF_WEEK) %>% summarise(total = n())
+ggplot(c4,aes(x=factor(OFFENSE_CODE_GROUP),y=total,color=factor(HOUR))) + geom_point(size=1,shape=16) + 
+  facet_grid(cols=vars(DAY_OF_WEEK)) +
+  scale_colour_manual(values=c(rep("red",7),rep("black",12),rep("red",5))) + theme_light() + 
+  theme(aspect.ratio=3,axis.text.x=element_blank()) + 
+  labs(x="Type of offense",y="Number of crimes",color="Time")
+```
+
+> The above plot shows that some crimes happen during daytime and some nighfall. From this plot it does not seem that day of the week plays any role. So in the next iteration we will get rid of the facet: DAY_OF_WEEK and make a similar daytime vs nightime comparison as what we had done for day of the week. 
+
+```{r}
+c4 <- crimes %>% group_by(OFFENSE_CODE_GROUP,HOUR) %>% summarise(total = n())
+c51 <- c4 %>% filter(HOUR >= 7 & HOUR <= 18) %>% summarise(daytime = mean(total))
+c52 <- c4 %>% filter(HOUR < 7 | HOUR >18) %>% summarise(nighttime = mean(total))
+c5 <- full_join(c51,c52) 
+c5 <- c5 %>% mutate(daytime = replace_na(daytime,0))
+c5 <- c5 %>% mutate(nighttime = replace_na(nighttime,0))
+c5 <- c5 %>% mutate(Night_Day_diff = nighttime - daytime) %>% arrange(desc(Night_Day_diff))
+c5$Pos = c5$Night_Day_diff >=0
+ggplot(c5,aes(x=reorder(factor(OFFENSE_CODE_GROUP),Night_Day_diff),y=Night_Day_diff,fill=Pos)) + geom_bar(stat='identity') + 
+  scale_fill_brewer(palette = "Pastel1", guide=FALSE) + theme_light() + theme(aspect.ratio=0.8,axis.text.x=element_blank()) + 
+  labs(x="Type of offense",y="Difference between average Night and Day crimes") + coord_cartesian(ylim=c(-1000,1000)) + 
+  scale_y_continuous(breaks=seq(-1000,1000,200)) + 
+  annotate("text",size=2,x=c(67-2.5,66-1),y=unlist(c5[1:2,4]+25),label=c(as.character((unlist(c5[1:2,1]))))) + 
+  annotate("text",size=2,x=c(3+2.5,2+6,1+1),y=unlist(c5[65:67,4]-25),label=c(as.character((unlist(c5[65:67,1]))))) + 
+  annotate("text",size=3,x=c(60,60),y=c(-1000,1000),label=c("Day crimes","Night crimes")) 
+```
+
+> The above plot suggests that most crimes are happening during day. I do beleive that this is more a function of when the crime is getting reported rather than when it is happening.  
+
+> Lets also see what crimes are most likely to involve shooting. 
+
+```{r}
+c6 <- crimes %>% group_by(OFFENSE_CODE_GROUP) %>% filter(SHOOTING=="Y") %>% count(SHOOTING) %>% arrange(desc(n))
+ggplot(c6,aes(x=reorder(factor(OFFENSE_CODE_GROUP),-n),y=n)) + geom_bar(stat='identity') +
+  scale_fill_brewer(palette = "Pastel1", guide=FALSE) + theme_light() + theme(aspect.ratio=0.5,axis.text.x=element_blank()) +
+  labs(x="Type of offense",y="Number of crimes with shootings") + coord_cartesian(ylim=c(0,600)) + 
+  scale_y_continuous(breaks=seq(0,600,100)) + 
+  annotate("text",size=2,x=c(1+1.5,2+0.5,3+1),y=unlist(c6[1:3,3]+25),label=c(as.character((unlist(c6[1:3,1])))))
+```
+
+> As expected its violent crimes. Surprisingly its also warrant based arrests. Wondering if police can somehow de-escalate arrests to reduce shootings. 
+
+> Lets now now dig into geographical data on where crime is occuring in Boston. And how it has changed over the last 3 years. 
+
+```{r}
+c7 <- crimes %>% filter(Long!=-1)
+ggplot(c7,aes(y=Lat,x=Long,color=DISTRICT)) + geom_point(size=1,shape=16,alpha=0.1) + facet_grid(cols=vars(YEAR)) + 
+  labs(x="Longitude",y="Latitude") + guides(colour=guide_legend(override.aes=list(alpha=1))) + theme_light() + theme(aspect.ratio=1) + 
+  scale_x_continuous(breaks=seq(-71.2,-70.9,0.1)) + scale_y_continuous(breaks=seq(42.1,42.4,0.05))
+```
+
+> The above plot shows that more or less crime distribution was similar for each year. So we can ignore that as a factor when breaking down the type of crimes. Lets look at where top 12 crimes occur in Boston. 
+
+```{r}
+c8 <- c7 %>% group_by(OFFENSE_CODE_GROUP) %>% summarise(total = n()) %>% arrange(desc(total))
+c9 <- c7 %>% filter(OFFENSE_CODE_GROUP %in% unlist(c8[1:12,1]))
+ggplot(c9,aes(y=Lat,x=Long,color=DISTRICT)) + geom_point(size=1,shape=16,alpha=0.1) + facet_wrap(vars(OFFENSE_CODE_GROUP)) +
+  labs(x="Longitude",y="Latitude") + theme_light() + theme(aspect.ratio=1,strip.text = element_text(size = 6)) +
+  scale_x_continuous(breaks=seq(-71.2,-70.9,0.1)) + scale_y_continuous(breaks=seq(42.1,42.4,0.05)) + 
+  guides(colour=guide_legend(override.aes=list(alpha=1)))
+```
+
+> The above plot is hard to see even though we have a very high transparency due to crime density. So we will bin the events to create a better visualization. 
+
+```{r}
+ggplot(c9,aes(y=Lat,x=Long)) + geom_point(size=1,shape=16,alpha=0.1) + facet_wrap(vars(OFFENSE_CODE_GROUP)) +
+  labs(x="Longitude",y="Latitude") + theme_light() + theme(aspect.ratio=1,strip.text = element_text(size = 6)) +
+  scale_x_continuous(breaks=seq(-71.2,-70.9,0.1)) + scale_y_continuous(breaks=seq(42.1,42.4,0.05)) + 
+  stat_bin_2d(bins=100) + scale_fill_gradient(low="lightblue",high="red",limits=c(0,50),guide="legend")
+```
+
+> In summary, the above charts help us better visualize the crime data in Boston during the 4 year period. 
+
