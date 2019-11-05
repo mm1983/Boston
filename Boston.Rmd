@@ -21,7 +21,7 @@ codes <- read.csv(file="offense_codes.csv", header=TRUE, sep=",")
 crimes <- read.csv(file="crime.csv", header=TRUE, sep=",")
 ```
 
-> Take a sneak peak at the data to understand the columns present in the csv  
+> Take a sneak peak at the data to understand the columns present in the csv file
 
 ```{r}
 print(ncol(crimes))
