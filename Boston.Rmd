@@ -9,7 +9,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-> First the data is imported from a CSV file  
+> First the data is imported from a CSV   
 
 ```{r, warning = FALSE, message= FALSE}
 library(ggplot2)
